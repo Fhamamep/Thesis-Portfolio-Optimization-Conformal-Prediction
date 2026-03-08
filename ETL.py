@@ -7,7 +7,7 @@ import yfinance as yf
 import pandas as pd
 
 
-# EXTRACT
+# -------EXTRACT----
 
 def get_dow_reverse_history():
     # Final List (Current State for 2026/2025)
