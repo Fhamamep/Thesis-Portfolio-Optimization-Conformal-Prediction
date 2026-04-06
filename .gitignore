@@ -8,3 +8,6 @@ __pycache__/
 # csv monthly file
 data/processed/returns_monthly.csv
 data/processed/returns_monthly.pkl
+
+
+cv_metrics/
