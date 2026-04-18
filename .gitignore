@@ -11,3 +11,5 @@ data/processed/returns_monthly.pkl
 
 
 cv_metrics/
+
+puncc.ipynb
