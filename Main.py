@@ -12,6 +12,7 @@ warnings.filterwarnings("ignore")
 from config import (  
     LOOKBACK_DAYS, OPTIMIZE_EVERY,  
     CP_LEVELS,  
+    RISK_FREE_RATE
 )  
 from data_loader import (  
     load_daily_prices, load_monthly_prices,  
@@ -204,7 +205,7 @@ def main() -> None:
     print("STEP 4: Portfolio performance metrics")  
     print("=" * 70)  
   
-    rf_daily     = (1 + 0.05) ** (1 / 252) - 1  
+    rf_daily     = (1 + RISK_FREE_RATE) ** (1 / 252) - 1  #compounding annual risk-free rate to daily
     perf_rolling = portfolio_performance(returns_df, rf_daily=rf_daily)  
   
     print("\nRolling window:")  
@@ -235,7 +236,7 @@ def main() -> None:
     plot_cumulative_returns(  
         returns_df,  
         title="Cumulative Returns – Rolling Window",  
-        save_path="outputs/plots/cumulative_rolling.png",  
+        save_path="outputs/plots/cumulative_rolling.png",
     )  
     plot_rolling_sharpe(  
         returns_df,  

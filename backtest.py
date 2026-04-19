@@ -94,7 +94,7 @@ def backtest(
     Returns:
         (returns_df, weights_dict)
     """
-    X = prices.pct_change().dropna()
+    X = prices.pct_change().dropna()    #returns DataFrame for backtesting
 
     all_rets, all_ws = {}, {}
 

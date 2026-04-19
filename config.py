@@ -10,10 +10,10 @@ DAILY_START_DATE    = "2013-06-01"   # Align with CP intervals
 # ── Backtest ──────────────────────────────────────────────────────────────────
 LOOKBACK_DAYS       = 756            # 3 years × 252 trading days
 OPTIMIZE_EVERY      = 21             # Monthly rebalance (~21 trading days)
-N_JOBS=-1
+N_JOBS=1
 
 # ── Conformal Prediction ──────────────────────────────────────────────────────
-CP_HORIZON          = 1              # 1-step-ahead forecast
+CP_HORIZON          = 1              # 1-step-ahead monthly forecast
 CP_N_WINDOWS        = 36             # Calibration windows (3 years monthly)
 CP_WINDOW_SIZE      = 36             # Rolling window for WindowAverage
 CP_LEVELS           = [80, 85, 90, 95]

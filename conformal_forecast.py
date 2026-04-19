@@ -164,7 +164,8 @@ def run_conformal_pipeline() -> None:
   
     cv_df = run_cross_validation(  
         train_long=monthly_long_clean,  
-        levels=CP_LEVELS,  
+        levels=CP_LEVELS,
+        n_windows=CP_N_WINDOWS, 
     )  
   
     cv_df              = cv_df.rename(columns={"y": "actual"})  
@@ -218,13 +219,225 @@ def run_conformal_pipeline() -> None:
     print("  outputs/cp_lower_bounds.csv")  
     print("  outputs/point_forecast_metrics.csv")  
     print("  outputs/interval_forecast_metrics.csv")  
+    analyse_lower_bounds(cv_df, levels=CP_LEVELS)  
     print("\nConformal pipeline complete.")  
   
   
 # ─────────────────────────────────────────────────────────────────────────────  
 # ENTRY POINT  
 # ─────────────────────────────────────────────────────────────────────────────  
+# ─────────────────────────────────────────────────────────────────────────────  
+# LOWER BOUND ANALYSIS  
+# ─────────────────────────────────────────────────────────────────────────────  
+  # conformal_forecast.py  
+# add these two imports at the top of the file  
+import matplotlib.pyplot as plt  
+import numpy as np  
+def analyse_lower_bounds(cv_df: pd.DataFrame, levels: list = CP_LEVELS) -> None:  
+    """  
+    Descriptive analysis of CP lower bound values across all tickers,  
+    models and confidence levels.  
   
+    Answers the key question:  
+        Are the lower bounds positive enough to be used as MVO expected  
+        return inputs, or are they predominantly negative?  
+  
+    Args:  
+        cv_df  : Cross-validation output with 'actual' column  
+        levels : Confidence levels to analyse (e.g. [80, 85, 90, 95])  
+    """  
+  
+    models = ["WindowAverage", "Naive", "RWD", "HistoricAverage"]  
+  
+    # ── 1. Global descriptive stats per (model, level) ────────────────────────  
+    print("\n" + "=" * 70)  
+    print("LOWER BOUND ANALYSIS")  
+    print("=" * 70)  
+  
+    print("\n[1] Global descriptive statistics of lower bounds")  
+    print("-" * 70)  
+  
+    summary_rows = []  
+  
+    for model in models:  
+        for level in levels:  
+            col = f"{model}-lo-{level}"  
+            if col not in cv_df.columns:  
+                continue  
+  
+            series = cv_df[col].dropna()  
+            n_total    = len(series)  
+            n_negative = (series < 0).sum()  
+            n_positive = (series >= 0).sum()  
+            pct_neg    = n_negative / n_total * 100  
+  
+            summary_rows.append({  
+                "Model":        model,  
+                "Level":        f"{level}%",  
+                "Mean":         round(series.mean(), 4),  
+                "Std":          round(series.std(), 4),  
+                "Min":          round(series.min(), 4),  
+                "25%":          round(series.quantile(0.25), 4),  
+                "Median":       round(series.median(), 4),  
+                "75%":          round(series.quantile(0.75), 4),  
+                "Max":          round(series.max(), 4),  
+                "N Negative":   n_negative,  
+                "N Positive":   n_positive,  
+                "% Negative":   round(pct_neg, 1),  
+            })  
+  
+    summary_df = pd.DataFrame(summary_rows).set_index(["Model", "Level"])  
+    print(summary_df.to_string())  
+  
+    # ── 2. Per-ticker sign analysis (WindowAverage, level 80) ─────────────────  
+    print("\n[2] Per-ticker sign analysis — WindowAverage lo-80")  
+    print("-" * 70)  
+    print("(Most relevant for MVO since lo-80 is the least conservative bound)\n")  
+  
+    col = "WindowAverage-lo-80"  
+    if col in cv_df.columns:  
+        ticker_sign = (  
+            cv_df.groupby("unique_id")[col]  
+            .apply(lambda s: pd.Series({  
+                "Mean":       round(s.mean(), 4),  
+                "Min":        round(s.min(), 4),  
+                "Max":        round(s.max(), 4),  
+                "% Negative": round((s < 0).mean() * 100, 1),  
+                "% Positive": round((s >= 0).mean() * 100, 1),  
+                "N":          s.dropna().__len__(),  
+            }))  
+            .unstack()  
+        )  
+        print(ticker_sign.to_string())  
+  
+        # Summary sentence  
+        all_neg_tickers = ticker_sign[ticker_sign["% Negative"] == 100].index.tolist()  
+        mixed_tickers   = ticker_sign[  
+            (ticker_sign["% Negative"] > 0) & (ticker_sign["% Negative"] < 100)  
+        ].index.tolist()  
+  
+        print(f"\n  Tickers with 100% negative lower bounds : {len(all_neg_tickers)}")  
+        print(f"  Tickers with mixed sign lower bounds    : {len(mixed_tickers)}")  
+        print(f"  List of all-negative tickers: {all_neg_tickers}")  
+  
+    # ── 3. Comparison: lower bound vs actual mean return ──────────────────────  
+    print("\n[3] Lower bound vs actual mean return — WindowAverage lo-80")  
+    print("-" * 70)  
+  
+    col = "WindowAverage-lo-80"  
+    if col in cv_df.columns and "actual" in cv_df.columns:  
+        comparison = (  
+            cv_df.groupby("unique_id")  
+            .apply(lambda g: pd.Series({  
+                "Actual Mean Return": round(g["actual"].mean(), 4),  
+                "CP Lower Bound Mean": round(g[col].mean(), 4),  
+                "Difference":         round(g["actual"].mean() - g[col].mean(), 4),  
+                "LB Usable for MVO":  "Yes" if g[col].mean() > 0 else "No",  
+            }))  
+        )  
+        print(comparison.to_string())  
+  
+        n_usable = (comparison["LB Usable for MVO"] == "Yes").sum()  
+        print(f"\n  Tickers where mean lower bound > 0 (usable for MVO): "  
+              f"{n_usable} / {len(comparison)}")  
+  
+    # ── 4. Distribution plot — lower bounds across all levels ─────────────────  
+    print("\n[4] Generating distribution plots...")  
+  
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))  
+    axes = axes.flatten()  
+  
+    for i, model in enumerate(models):  
+        ax = axes[i]  
+        for level in levels:  
+            col = f"{model}-lo-{level}"  
+            if col in cv_df.columns:  
+                cv_df[col].dropna().plot.kde(ax=ax, label=f"lo-{level}")  
+  
+        ax.axvline(0, color="red", linewidth=1.2, linestyle="--", label="Zero")  
+        ax.set_title(f"{model} — Lower Bound Distribution", fontweight="bold")  
+        ax.set_xlabel("Lower Bound Value")  
+        ax.set_ylabel("Density")  
+        ax.legend(fontsize=8)  
+        ax.grid(True, alpha=0.3)  
+  
+    plt.suptitle(  
+        "CP Lower Bound Distributions by Model and Confidence Level\n"  
+        "(red dashed line = zero; values left of zero not usable as MVO inputs)",  
+        fontsize=11, fontweight="bold", y=1.01,  
+    )  
+    plt.tight_layout()  
+    plt.savefig("outputs/plots/cp_lower_bound_distributions.png", dpi=150, bbox_inches="tight")  
+    print("  Saved: outputs/plots/cp_lower_bound_distributions.png")  
+    plt.show()  
+  
+    # ── 5. Heatmap — % negative lower bounds per ticker (WindowAverage) ───────  
+    print("\n[5] Generating heatmap of % negative lower bounds...")  
+  
+    heatmap_data = pd.DataFrame()  
+    for level in levels:  
+        col = f"WindowAverage-lo-{level}"  
+        if col in cv_df.columns:  
+            pct_neg = cv_df.groupby("unique_id")[col].apply(  
+                lambda s: (s < 0).mean() * 100  
+            )  
+            heatmap_data[f"lo-{level}"] = pct_neg  
+  
+    if not heatmap_data.empty:  
+        fig, ax = plt.subplots(figsize=(8, 12))  
+        im = ax.imshow(heatmap_data.values, aspect="auto", cmap="RdYlGn_r",  
+                       vmin=0, vmax=100)  
+  
+        ax.set_xticks(range(len(heatmap_data.columns)))  
+        ax.set_xticklabels(heatmap_data.columns)  
+        ax.set_yticks(range(len(heatmap_data.index)))  
+        ax.set_yticklabels(heatmap_data.index)  
+  
+        # Annotate cells  
+        for row in range(len(heatmap_data.index)):  
+            for col_idx in range(len(heatmap_data.columns)):  
+                val = heatmap_data.values[row, col_idx]  
+                ax.text(col_idx, row, f"{val:.0f}%",  
+                        ha="center", va="center", fontsize=8,  
+                        color="black")  
+  
+        plt.colorbar(im, ax=ax, label="% Negative Lower Bounds")  
+        ax.set_title(  
+            "WindowAverage: % of Lower Bound Values < 0\nper Ticker and Confidence Level",  
+            fontweight="bold",  
+        )  
+        plt.tight_layout()  
+        plt.savefig("outputs/plots/cp_lower_bound_heatmap.png", dpi=150, bbox_inches="tight")  
+        print("  Saved: outputs/plots/cp_lower_bound_heatmap.png")  
+        plt.show()  
+  
+    # ── 6. Conclusion ─────────────────────────────────────────────────────────  
+    print("\n" + "=" * 70)  
+    print("CONCLUSION")  
+    print("=" * 70)  
+    print("""  
+  CP lower bounds represent the worst-case expected return at a given  
+  confidence level. By construction they are conservative and will be  
+  negative for most tickers in most periods.  
+  
+  Implications for portfolio optimisation:  
+  ─────────────────────────────────────────  
+  1. DIRECT MVO INPUT: Not suitable. MVO max-Sharpe requires at least  
+     one asset with expected return > risk-free rate. Negative bounds  
+     will cause optimisation failures (as seen in the backtest output).  
+  
+  2. RISK FILTER: Suitable. Use the lower bound to screen OUT assets  
+     whose worst-case return falls below a threshold (e.g. < -5%),  
+     then run standard MVO on the remaining universe.  
+  
+  3. CONSERVATIVE ALLOCATION: Suitable. Use the lower bound as the  
+     expected return input to a min-variance or risk-parity optimiser  
+     that does not require positive expected returns.  
+  
+  4. SCENARIO ANALYSIS: Suitable. Compare MVO results using point  
+     forecasts vs lower bounds to stress-test portfolio robustness.  
+    """)  
+
 if __name__ == "__main__":  
     try:  
         run_conformal_pipeline()  

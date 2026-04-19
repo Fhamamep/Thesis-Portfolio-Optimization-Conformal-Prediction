@@ -58,7 +58,7 @@ def load_monthly_prices() -> pd.DataFrame:
 
 def prices_to_long_returns(prices: pd.DataFrame, date_col: str = "Date") -> pd.DataFrame:
     """
-    Convert a wide price DataFrame to long-format monthly/daily returns
+    Convert a wide price DataFrame to long-format (Tabular) monthly/daily returns
     suitable for StatsForecast.
 
     Returns columns: ds | unique_id | y
