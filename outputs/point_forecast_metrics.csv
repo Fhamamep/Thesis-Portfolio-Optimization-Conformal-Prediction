@@ -1,0 +1,5 @@
+Model,MAE,RMSE,rMAE (vs Naive),FVA
+WindowAverage,0.0524,0.066,0.7042,0.2958
+Naive,0.0743,0.0937,1.0,0.0
+RWD,0.0746,0.0941,1.0041,-0.0041
+HistoricAverage,0.052,0.0654,0.6988,0.3012
