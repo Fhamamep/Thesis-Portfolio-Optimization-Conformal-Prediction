@@ -79,8 +79,8 @@ def point_forecast_metrics(
         metrics=[rmse, mae, scaled_crps, mase_fn, rmae_fn],
         level=levels,
         models=models,
-        target_col="actual",
-        agg_fn="mean",
+        target_col="actual"
+        ,    # Metrics per ticker.
     )
 
     rows = []
