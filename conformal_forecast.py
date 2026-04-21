@@ -13,6 +13,8 @@ from __future__ import annotations
   
 import os  
 import warnings  
+import matplotlib.pyplot as plt  
+import numpy as np  
 from functools import partial  
   
 import pandas as pd  
@@ -25,6 +27,8 @@ from statsforecast.models import (
     Naive,  
     RandomWalkWithDrift,  
     HistoricAverage,  
+    AutoETS,
+    AutoARIMA
 )  
 from statsforecast.utils import ConformalIntervals  
   
@@ -54,6 +58,8 @@ def build_models(
         Naive(prediction_intervals=intervals),  
         RandomWalkWithDrift(prediction_intervals=intervals),  
         HistoricAverage(prediction_intervals=intervals),  
+        AutoETS(prediction_intervals=intervals),  
+        AutoARIMA(prediction_intervals=intervals),  
     ]  
   
   
@@ -108,7 +114,9 @@ def run_cross_validation(
         n_windows=n_windows,  
         level=levels,  
     )  
-    return cv_df  
+    return cv_df  # cross validation df per ticker
+
+
   
   
 # ─────────────────────────────────────────────────────────────────────────────  
@@ -229,10 +237,8 @@ def run_conformal_pipeline() -> None:
 # ─────────────────────────────────────────────────────────────────────────────  
 # LOWER BOUND ANALYSIS  
 # ─────────────────────────────────────────────────────────────────────────────  
-  # conformal_forecast.py  
-# add these two imports at the top of the file  
-import matplotlib.pyplot as plt  
-import numpy as np  
+  # conformal_forecast.py    
+
 def analyse_lower_bounds(cv_df: pd.DataFrame, levels: list = CP_LEVELS) -> None:  
     """  
     Descriptive analysis of CP lower bound values across all tickers,  

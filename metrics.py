@@ -73,15 +73,18 @@ def point_forecast_metrics(
     mase_fn  = partial(mase, seasonality=1)
     rmae_fn  = partial(rmae, baseline="Naive")
 
-    result = evaluate(
+    result_tickers = evaluate(
         cv_copy,
         train_df=train_df,
         metrics=[rmse, mae, scaled_crps, mase_fn, rmae_fn],
         level=levels,
         models=models,
         target_col="actual"
-        ,    # Metrics per ticker.
+           # Metrics per ticker.Tabular format
     )
+    result_summary=   result_tickers.apply(mean) #? ni idea ckeck global metrics in explorarory
+
+    #coherence=    #deviation of the global metrics and per ticker metrics.
 
     rows = []
     for model in models:
@@ -150,3 +153,6 @@ def interval_metrics(
             })
 
     return pd.DataFrame(rows).set_index(["Model", "Alpha"])
+
+
+    #coherence between intervals coverage?
