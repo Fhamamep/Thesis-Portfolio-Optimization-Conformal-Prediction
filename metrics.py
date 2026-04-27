@@ -76,83 +76,50 @@ def point_forecast_metrics(
     result_tickers = evaluate(
         cv_copy,
         train_df=train_df,
-        metrics=[rmse, mae, scaled_crps, mase_fn, rmae_fn],
+        metrics=[rmse, mae, rmae_fn],
         level=levels,
         models=models,
         target_col="actual"
            # Metrics per ticker.Tabular format
     )
-    result_summary=   result_tickers.apply(mean) #? ni idea ckeck global metrics in explorarory
-
-    #coherence=    #deviation of the global metrics and per ticker metrics.
-
-    rows = []
-    for model in models:
-        r = result[result["metric"].isin(["mae", "rmse", "rmae_Naive"])].set_index("metric")[model]
-        rows.append({
-            "Model":           model,
-            "MAE":             r.get("mae",        np.nan),
-            "RMSE":            r.get("rmse",       np.nan),
-            "rMAE (vs Naive)": r.get("rmae_Naive", np.nan),
-            "FVA":             1 - r.get("rmae_Naive", np.nan),
-        })
-
-    return pd.DataFrame(rows).set_index("Model").round(4)
-
-
+    result_summary = result_tickers.groupby("metric")[models].mean().reset_index()
+    return result_tickers, result_summary
 # ── Probabilistic (interval) metrics ─────────────────────────────────────────
 
 def interval_metrics(
     cv_df: pd.DataFrame,
     models: List[str],
     alphas: List[float],
-) -> pd.DataFrame:
-    """
-    Compute marginal coverage, average width, and ACE for each
-    (model, alpha) combination.
+) -> tuple[pd.DataFrame, pd.DataFrame]:
 
-    Args:
-        cv_df  : Cross-validation output with 'actual' column
-        models : List of model names
-        alphas : List of significance levels (e.g. [0.10, 0.15, 0.20])
-
-    Returns:
-        DataFrame indexed by (Model, Alpha)
-    """
     rows = []
 
-    for alpha in alphas:
-        level = int((1 - alpha) * 100)
+    for ticker, group in cv_df.groupby("unique_id"):
+        for alpha in alphas:
+            level = int((1 - alpha) * 100)
+            for model in models:
+                lo_col = f"{model}-lo-{level}"
+                hi_col = f"{model}-hi-{level}"
+                df = group[["actual", lo_col, hi_col]].dropna()
 
-        for model in models:
-            lo_col = f"{model}-lo-{level}"
-            hi_col = f"{model}-hi-{level}"
-            df = cv_df[["actual", lo_col, hi_col]].dropna()
+                if df.empty:
+                    continue
 
-            if df.empty:
-                continue
+                rows.append({
+                    "unique_id": ticker,
+                    "Model":     model,
+                    "Alpha":     alpha,
+                    "Level":     f"{level}%",
+                    "Coverage":  round(puncc_metrics.regression_mean_coverage(df["actual"], df[lo_col], df[hi_col]), 4),
+                    "Width %":   round(puncc_metrics.regression_sharpness(y_pred_lower=df[lo_col], y_pred_upper=df[hi_col]) * 100, 2),
+                    "ACE %":     round(puncc_metrics.regression_ace(df["actual"], df[lo_col], df[hi_col], alpha) * 100, 2),
+                    "N":         len(df),
+                })
 
-            cov_val = puncc_metrics.regression_mean_coverage(
-                df["actual"], df[lo_col], df[hi_col]
-            )
-            width_val = puncc_metrics.regression_sharpness(
-                y_pred_lower=df[lo_col], y_pred_upper=df[hi_col]
-            )
-            ace_val = puncc_metrics.regression_ace(
-                df["actual"], df[lo_col], df[hi_col], alpha
-            )
+    result_tickers = pd.DataFrame(rows).set_index(["unique_id", "Model", "Alpha"])
+    result_summary = result_tickers.groupby(["Model", "Alpha"])[["Coverage", "Width %", "ACE %"]].mean().round(4)
 
-            rows.append({
-                "Model":     model,
-                "Alpha":     alpha,
-                "Level":     f"{level}%",
-                "Coverage":  round(cov_val,       4),
-                "Width %":   round(width_val * 100, 2),
-                "ACE %":     round(ace_val   * 100, 2),
-                "N":         len(df),
-            })
-
-    return pd.DataFrame(rows).set_index(["Model", "Alpha"])
+    return result_tickers, result_summary
 
 
     #coherence between intervals coverage?

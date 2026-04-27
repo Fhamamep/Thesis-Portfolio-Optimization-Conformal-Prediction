@@ -116,9 +116,6 @@ def run_cross_validation(
     )  
     return cv_df  # cross validation df per ticker
 
-
-  
-  
 # ─────────────────────────────────────────────────────────────────────────────  
 # CP BOUND EXTRACTION  
 # ─────────────────────────────────────────────────────────────────────────────  
@@ -143,7 +140,6 @@ def extract_cp_bounds(
     wide = cv_df.pivot(index="ds", columns="unique_id", values=col)  
     wide.dropna(inplace=True)  
     return wide  
-  
   
 # ─────────────────────────────────────────────────────────────────────────────  
 # STANDALONE PIPELINE  
@@ -192,27 +188,31 @@ def run_conformal_pipeline() -> None:
     print("Point forecast metrics (MAE, RMSE, rMAE, FVA)")  
     print("=" * 70)  
   
-    models = ["WindowAverage", "Naive", "RWD", "HistoricAverage"]  
+    models = ["WindowAverage", "Naive", "RWD", "HistoricAverage", "AutoETS", "AutoARIMA"]  
   
-    point_metrics_df = point_forecast_metrics(  
-        cv_df=cv_df,  
-        train_df=monthly_long_clean,  
-        models=models,  
-        levels=CP_LEVELS,  
-    )  
-    print(point_metrics_df.to_string())  
-  
+    point_metrics_df, point_metrics_df_summary = point_forecast_metrics(
+        cv_df=cv_df,
+        train_df=monthly_long_clean,
+        models=models,
+        levels=CP_LEVELS,
+    )
+    print(point_metrics_df)
+    print(point_metrics_df.describe().round(2))
+    print(point_metrics_df_summary)
+
     # ── Interval forecast metrics ─────────────────────────────────────────────  
     print("\n" + "=" * 70)  
     print("Probabilistic interval metrics (Coverage, Width, ACE)")  
     print("=" * 70)  
   
-    interval_metrics_df = interval_metrics(  
+    interval_metrics_df, interval_metrics_df_summary = interval_metrics(  
         cv_df=cv_df,  
         models=models,  
         alphas=CP_ALPHAS,  
     )  
-    print(interval_metrics_df.to_string())  
+    print(interval_metrics_df)
+    print(interval_metrics_df.describe().round(2))
+    print(interval_metrics_df_summary)  
   
     # ── Save outputs ──────────────────────────────────────────────────────────  
     print("\n" + "=" * 70)  
@@ -220,13 +220,16 @@ def run_conformal_pipeline() -> None:
     print("=" * 70)  
   
     cp_returns.to_csv("outputs/cp_lower_bounds.csv")  
+    cv_df.to_csv("outputs/cv_df.csv", index=False)
     point_metrics_df.to_csv("outputs/point_forecast_metrics.csv")  
+    point_metrics_df_summary.to_csv("outputs/point_forecast_metrics_summary.csv")
     interval_metrics_df.to_csv("outputs/interval_forecast_metrics.csv")  
-  
+    interval_metrics_df_summary.to_csv("outputs/interval_forecast_metrics_summary.csv")
     print("Saved:")  
     print("  outputs/cp_lower_bounds.csv")  
     print("  outputs/point_forecast_metrics.csv")  
     print("  outputs/interval_forecast_metrics.csv")  
+    print("  outputs/interval_forecast_metrics_summary.csv")  
     analyse_lower_bounds(cv_df, levels=CP_LEVELS)  
     print("\nConformal pipeline complete.")  
   
@@ -253,7 +256,7 @@ def analyse_lower_bounds(cv_df: pd.DataFrame, levels: list = CP_LEVELS) -> None:
         levels : Confidence levels to analyse (e.g. [80, 85, 90, 95])  
     """  
   
-    models = ["WindowAverage", "Naive", "RWD", "HistoricAverage"]  
+    models = ["WindowAverage", "Naive", "RWD", "HistoricAverage", "AutoETS", "AutoARIMA"]  
   
     # ── 1. Global descriptive stats per (model, level) ────────────────────────  
     print("\n" + "=" * 70)  
@@ -326,96 +329,6 @@ def analyse_lower_bounds(cv_df: pd.DataFrame, levels: list = CP_LEVELS) -> None:
         print(f"  Tickers with mixed sign lower bounds    : {len(mixed_tickers)}")  
         print(f"  List of all-negative tickers: {all_neg_tickers}")  
   
-    # ── 3. Comparison: lower bound vs actual mean return ──────────────────────  
-    print("\n[3] Lower bound vs actual mean return — WindowAverage lo-80")  
-    print("-" * 70)  
-  
-    col = "WindowAverage-lo-80"  
-    if col in cv_df.columns and "actual" in cv_df.columns:  
-        comparison = (  
-            cv_df.groupby("unique_id")  
-            .apply(lambda g: pd.Series({  
-                "Actual Mean Return": round(g["actual"].mean(), 4),  
-                "CP Lower Bound Mean": round(g[col].mean(), 4),  
-                "Difference":         round(g["actual"].mean() - g[col].mean(), 4),  
-                "LB Usable for MVO":  "Yes" if g[col].mean() > 0 else "No",  
-            }))  
-        )  
-        print(comparison.to_string())  
-  
-        n_usable = (comparison["LB Usable for MVO"] == "Yes").sum()  
-        print(f"\n  Tickers where mean lower bound > 0 (usable for MVO): "  
-              f"{n_usable} / {len(comparison)}")  
-  
-    # ── 4. Distribution plot — lower bounds across all levels ─────────────────  
-    print("\n[4] Generating distribution plots...")  
-  
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))  
-    axes = axes.flatten()  
-  
-    for i, model in enumerate(models):  
-        ax = axes[i]  
-        for level in levels:  
-            col = f"{model}-lo-{level}"  
-            if col in cv_df.columns:  
-                cv_df[col].dropna().plot.kde(ax=ax, label=f"lo-{level}")  
-  
-        ax.axvline(0, color="red", linewidth=1.2, linestyle="--", label="Zero")  
-        ax.set_title(f"{model} — Lower Bound Distribution", fontweight="bold")  
-        ax.set_xlabel("Lower Bound Value")  
-        ax.set_ylabel("Density")  
-        ax.legend(fontsize=8)  
-        ax.grid(True, alpha=0.3)  
-  
-    plt.suptitle(  
-        "CP Lower Bound Distributions by Model and Confidence Level\n"  
-        "(red dashed line = zero; values left of zero not usable as MVO inputs)",  
-        fontsize=11, fontweight="bold", y=1.01,  
-    )  
-    plt.tight_layout()  
-    plt.savefig("outputs/plots/cp_lower_bound_distributions.png", dpi=150, bbox_inches="tight")  
-    print("  Saved: outputs/plots/cp_lower_bound_distributions.png")  
-    plt.show()  
-  
-    # ── 5. Heatmap — % negative lower bounds per ticker (WindowAverage) ───────  
-    print("\n[5] Generating heatmap of % negative lower bounds...")  
-  
-    heatmap_data = pd.DataFrame()  
-    for level in levels:  
-        col = f"WindowAverage-lo-{level}"  
-        if col in cv_df.columns:  
-            pct_neg = cv_df.groupby("unique_id")[col].apply(  
-                lambda s: (s < 0).mean() * 100  
-            )  
-            heatmap_data[f"lo-{level}"] = pct_neg  
-  
-    if not heatmap_data.empty:  
-        fig, ax = plt.subplots(figsize=(8, 12))  
-        im = ax.imshow(heatmap_data.values, aspect="auto", cmap="RdYlGn_r",  
-                       vmin=0, vmax=100)  
-  
-        ax.set_xticks(range(len(heatmap_data.columns)))  
-        ax.set_xticklabels(heatmap_data.columns)  
-        ax.set_yticks(range(len(heatmap_data.index)))  
-        ax.set_yticklabels(heatmap_data.index)  
-  
-        # Annotate cells  
-        for row in range(len(heatmap_data.index)):  
-            for col_idx in range(len(heatmap_data.columns)):  
-                val = heatmap_data.values[row, col_idx]  
-                ax.text(col_idx, row, f"{val:.0f}%",  
-                        ha="center", va="center", fontsize=8,  
-                        color="black")  
-  
-        plt.colorbar(im, ax=ax, label="% Negative Lower Bounds")  
-        ax.set_title(  
-            "WindowAverage: % of Lower Bound Values < 0\nper Ticker and Confidence Level",  
-            fontweight="bold",  
-        )  
-        plt.tight_layout()  
-        plt.savefig("outputs/plots/cp_lower_bound_heatmap.png", dpi=150, bbox_inches="tight")  
-        print("  Saved: outputs/plots/cp_lower_bound_heatmap.png")  
-        plt.show()  
   
     # ── 6. Conclusion ─────────────────────────────────────────────────────────  
     print("\n" + "=" * 70)  
